@@ -1,16 +1,17 @@
 # models.py
 import sqlite3
 import random
-import openai
 import hashlib
 from datetime import datetime
+import google.generativeai as genai
+
 
 # ==========================================
 # 設定區
 # ==========================================
 DB_NAME = "quiz_system.db"
-# 如果你有 OpenAI Key，請填入這裡；若無，程式會使用模擬回覆
-OPENAI_API_KEY = ""  
+# 如果你有 Gemini Key，請填入這裡；若無，程式會使用模擬回覆
+GEMINI_API_KEY = "AIzaSyBf1CQNPsPirVbIPYyo4vujpFYAwVOyUTk"  # 先留空，等你貼 key
 
 # 題庫 (保留原本的)
 WORDS = [
@@ -162,23 +163,91 @@ def normalize(text: str) -> str:
     return text.strip().lower()
 
 def get_ai_explanation(word: str):
-    """呼叫 OpenAI API 解釋單字"""
-    if not OPENAI_API_KEY:
-        # 如果沒有 Key，回傳模擬訊息 (避免 Demo 失敗)
-        return (f"【模擬 AI 回覆】\n\n單字：{word}\n"
-                f"因為未設定 API Key，這是自動生成的範例。\n"
+    if not GEMINI_API_KEY:
+        return (f"【示範 AI 回覆】\n\n單字：{word}\n"
+                f"目前以內建示範模式運作。\n"
                 f"例句：The {word} is very important for learning.")
-    
+
     try:
-        openai.api_key = OPENAI_API_KEY
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "你是一位英文老師，請用繁體中文簡單解釋這個單字，並給一個英文例句。"},
-                {"role": "user", "content": f"請解釋：{word}"}
-            ],
-            max_tokens=150
+        genai.configure(api_key=GEMINI_API_KEY)
+        model = genai.GenerativeModel("gemini-2.0-flash")
+        prompt = (
+            "你是一位英文老師，請用繁體中文簡單解釋這個單字，"
+            "並給一個簡單的英文例句。\n\n"
+            f"單字：{word}"
         )
-        return response.choices[0].message.content
-    except Exception as e:
-        return f"AI 連線錯誤：{str(e)}"
+        response = model.generate_content(prompt)
+        return response.text or "（AI 沒有回傳內容）"
+    except Exception:
+        # 不把整個錯誤秀給使用者，改成友善提示
+        return (f"【示範 AI 回覆】\n\n單字：{word}\n"
+                f"目前超出免費額度，暫以內建示範模式顯示。\n"
+                f"例句：The {word} is very important for learning.")
+
+    
+# ==========================================
+# 設計模式：Strategy 出題策略
+# ==========================================
+
+from abc import ABC, abstractmethod
+
+
+class QuizStrategy(ABC):
+    """出題策略介面：定義所有題型共用的出題方法"""
+
+    @abstractmethod
+    def generate_questions(self, num_questions: int):
+        """
+        回傳一個「題目列表」。
+        具體內容由各子類別決定（填空 / 選擇 / 連連看）。
+        """
+        pass
+
+
+class FillQuizStrategy(QuizStrategy):
+    """
+    填空題策略：中文 -> 英文
+    回傳格式：
+    [
+        {"zh": "蘋果", "en": "apple"},
+        ...
+    ]
+    """
+    def generate_questions(self, num_questions: int):
+        selected = get_quiz_questions(num_questions)
+        return [
+            {"zh": item["zh"], "en": item["en"]}
+            for item in selected
+        ]
+
+class ChoiceQuizStrategy(QuizStrategy):
+    def generate_questions(self, num_questions: int):
+        selected = get_quiz_questions(num_questions)
+        all_words = WORDS.copy()
+        questions = []
+
+        for item in selected:
+            correct = item["en"]
+            pool = [w["en"] for w in all_words if w["en"] != correct]
+            random.shuffle(pool)
+            distractors = pool[:3]
+            options = [correct] + distractors
+            random.shuffle(options)
+
+            questions.append(
+                {
+                    "zh": item["zh"],
+                    "en": item["en"],
+                    "options": options,
+                }
+            )
+
+        return questions
+
+class MatchQuizStrategy(QuizStrategy):
+    def generate_questions(self, num_questions: int):
+        selected = get_quiz_questions(num_questions)
+        return [
+            {"zh": item["zh"], "en": item["en"]}
+            for item in selected
+        ]

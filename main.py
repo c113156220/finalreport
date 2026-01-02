@@ -44,10 +44,10 @@ class MenuWindow(QWidget):
         # 設定按鈕樣式與高度
         for btn in [self.btn_fill, self.btn_choice, self.btn_match, self.btn_rank, self.btn_exit]:
             btn.setMinimumHeight(45)
-            btn.setStyleSheet("font-size: 14px;")
+            btn.setStyleSheet("font-size: 20px;")
             
         # 特別將離開按鈕設為不同顏色
-        self.btn_exit.setStyleSheet("background-color: #ffebee; color: #c62828; font-size: 14px;")
+        self.btn_exit.setStyleSheet("background-color: #ffebee; color: #c62828; font-size: 20px;")
 
         # 3. 版面配置
         layout = QVBoxLayout()

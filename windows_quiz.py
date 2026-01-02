@@ -10,9 +10,11 @@ from PyQt5.QtCore import Qt
 import random
 
 from models import (
-    get_quiz_questions, normalize, WORDS,
-    DBManager, UserSession, get_ai_explanation
+    normalize, WORDS,
+    DBManager, UserSession, get_ai_explanation,
+    FillQuizStrategy, ChoiceQuizStrategy, MatchQuizStrategy,
 )
+
 
 # ========= 連連看模式 (新增 AI 與 資料庫支援) =========
 class MatchQuizWindow(QWidget):
@@ -20,22 +22,25 @@ class MatchQuizWindow(QWidget):
         super().__init__()
         self.num_questions = min(num_questions, len(WORDS))
         self.score = 0
-        self.pairs = []          
+        self.pairs = []
         self.left_selected = None
         self.right_selected = None
         self.matched_count = 0
 
+        # 使用策略模式取得配對資料
+        self.strategy = MatchQuizStrategy()
         self.init_data()
         self.init_ui()
 
     def init_data(self):
-        all_words = WORDS.copy()
-        random.shuffle(all_words)
-        self.pairs = all_words[: self.num_questions]
+        # 這裡改成用策略的 generate_questions()
+        raw_pairs = self.strategy.generate_questions(self.num_questions)
+        self.pairs = raw_pairs  # [{"zh": ..., "en": ...}, ...]
         self.matched_count = 0
         self.score = 0
         self.left_selected = None
         self.right_selected = None
+
 
     def init_ui(self):
         self.setWindowTitle(f"連連看模式 - 玩家: {UserSession().get_user()}")
@@ -242,12 +247,15 @@ class FillQuizWindow(QWidget):
         self.current_index = 0
         self.score = 0
         self.question_list = []
+        self.strategy = FillQuizStrategy()  # 使用策略
         self.init_data()
         self.init_ui()
         self.load_question()
 
     def init_data(self):
-        self.question_list = get_quiz_questions(self.num_questions)
+        # 使用策略產生題目，格式 [{"zh": ..., "en": ...}, ...]
+        self.question_list = self.strategy.generate_questions(self.num_questions)
+
 
     def init_ui(self):
         self.setWindowTitle(f"填空模式 - 玩家: {UserSession().get_user()}")
@@ -332,6 +340,7 @@ class FillQuizWindow(QWidget):
         self.close()
 
 # ========= 選擇題模式 =========
+# ========= 選擇題模式 =========
 class ChoiceQuizWindow(QWidget):
     def __init__(self, num_questions=5):
         super().__init__()
@@ -340,12 +349,15 @@ class ChoiceQuizWindow(QWidget):
         self.score = 0
         self.question_list = []
         self.btn_options = []
+        self.strategy = ChoiceQuizStrategy()  # 使用策略
         self.init_data()
         self.init_ui()
         self.load_question()
 
     def init_data(self):
-        self.question_list = get_quiz_questions(self.num_questions)
+        # 使用策略產生題目，含 options
+        # 每題格式：{"zh": ..., "en": ..., "options": [...]}
+        self.question_list = self.strategy.generate_questions(self.num_questions)
 
     def init_ui(self):
         self.setWindowTitle(f"選擇題模式 - 玩家: {UserSession().get_user()}")
@@ -368,6 +380,7 @@ class ChoiceQuizWindow(QWidget):
         layout.addWidget(self.label_word)
         layout.addWidget(self.btn_ai)
 
+        # 四個選項按鈕
         for i in range(4):
             btn = QPushButton(f"選項 {i+1}")
             btn.clicked.connect(self.on_option_clicked)
@@ -375,7 +388,7 @@ class ChoiceQuizWindow(QWidget):
             layout.addWidget(btn)
 
         layout.addWidget(self.label_feedback)
-        
+
         self.btn_next = QPushButton("下一題")
         self.btn_next.clicked.connect(self.next_question)
         layout.addWidget(self.btn_next)
@@ -386,27 +399,22 @@ class ChoiceQuizWindow(QWidget):
         if self.current_index >= self.num_questions:
             self.show_final_result()
             return
-        
+
         word = self.question_list[self.current_index]
         self.correct_answer = word["en"]
         self.label_word.setText(word["zh"])
         self.label_feedback.setText("")
-        
-        # 產生選項
-        options = [word["en"]]
-        while len(options) < 4:
-            w = random.choice(WORDS)["en"]
-            if w not in options:
-                options.append(w)
-        random.shuffle(options)
-        
+
+        # 直接用策略產生好的選項陣列
+        options = word["options"]
         for i, btn in enumerate(self.btn_options):
             btn.setText(options[i])
             btn.setEnabled(True)
             btn.setStyleSheet("")
 
     def show_ai_help(self):
-        if self.current_index >= len(self.question_list): return
+        if self.current_index >= len(self.question_list):
+            return
         current_word_en = self.question_list[self.current_index]["en"]
         self.label_feedback.setText("🤖 AI 正在思考中...")
         self.repaint()
@@ -419,11 +427,11 @@ class ChoiceQuizWindow(QWidget):
         if sender.text() == self.correct_answer:
             self.score += 1
             self.label_feedback.setText("✔ 正確！")
-            sender.setStyleSheet("background-color: #a5d6a7;") # 綠色
+            sender.setStyleSheet("background-color: #a5d6a7;")  # 綠色
         else:
             self.label_feedback.setText(f"✘ 錯誤，答案是 {self.correct_answer}")
-            sender.setStyleSheet("background-color: #ef9a9a;") # 紅色
-        
+            sender.setStyleSheet("background-color: #ef9a9a;")  # 紅色
+
         for btn in self.btn_options:
             btn.setEnabled(False)
 
@@ -435,6 +443,7 @@ class ChoiceQuizWindow(QWidget):
         DBManager.save_score("選擇題", self.score, self.num_questions)
         QMessageBox.information(self, "結果", f"得分：{self.score}/{self.num_questions}")
         self.close()
+
 
 # ========= 排行榜 (資料庫版) =========
 class RankingDialog(QDialog):
